@@ -29,7 +29,7 @@ if (isset($data['email']) && isset($data['password'])) {
         $pdo = $connection->connect();
 
         // Consulta para obtener el usuario por email
-        $sql = "SELECT * FROM usuarios WHERE email = :email";
+        $sql = "SELECT id, email, password, role_id FROM usuarios WHERE email = :email";
         $stmt = $pdo->prepare($sql);
         $stmt->bindParam(':email', $email, PDO::PARAM_STR);
         $stmt->execute();
@@ -39,12 +39,28 @@ if (isset($data['email']) && isset($data['password'])) {
         // Verifica si el usuario existe
         if ($user) {
             if (password_verify($password, $user['password'])) {
-                // Iniciar la sesión del usuario y guardar los datos en la sesión
+                // Regenerar la sesión para mayor seguridad
+                session_regenerate_id(true);
                 $_SESSION['user_id'] = $user['id'];
                 $_SESSION['email'] = $user['email'];
                 $_SESSION['role_id'] = $user['role_id'];
 
-                // Respuesta de login exitoso
+                // Solo permitir que el usuario autenticado o el administrador vean los datos
+                if ($user['role_id'] == 1) {
+                    // Si es administrador, obtiene toda la información de los usuarios
+                    $sql = "SELECT id, email, role_id FROM usuarios";
+                    $stmt = $pdo->prepare($sql);
+                } else {
+                    // Si es un usuario normal, solo obtiene su propia información
+                    $sql = "SELECT id, email, role_id FROM usuarios WHERE id = :id";
+                    $stmt = $pdo->prepare($sql);
+                    $stmt->bindParam(':id', $user['id'], PDO::PARAM_INT);
+                }
+
+                $stmt->execute();
+                $users = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Respuesta de login exitoso con la información que puede ver
                 echo json_encode([
                     'status' => 'success',
                     'message' => 'Login exitoso',
@@ -52,7 +68,8 @@ if (isset($data['email']) && isset($data['password'])) {
                         'id' => $user['id'],
                         'email' => $user['email'],
                         'role_id' => $user['role_id']
-                    ]
+                    ],
+                    'users' => $users
                 ]);
             } else {
                 echo json_encode([ 'status' => 'error', 'message' => 'Contraseña incorrecta' ]);
