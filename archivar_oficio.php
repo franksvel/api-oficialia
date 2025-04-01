@@ -1,120 +1,103 @@
 <?php
-header('Content-Type: application/json'); 
-header("Access-Control-Allow-Origin: http://localhost:4200");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type, Content-Disposition, Content-Length, Content-Type");
+// Habilitar CORS
+header("Access-Control-Allow-Origin: http://localhost:4200"); // Puedes cambiar el * por un dominio específico si es necesario.
+header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization, Content-Disposition, Content-Length"); // Corrige la redundancia
+
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
 
-// Verifica si se envió una solicitud de tipo POST con archivos
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+// Verificar si la solicitud es una opción (preflight)
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    exit;  // Salir si es una solicitud preflight
+}
 
-    // Verifica que se haya enviado un archivo
-    if (!isset($_FILES['file']) || $_FILES['file']['error'] != 0) {
-        echo json_encode([
-            'status' => 'error',
-            'message' => 'No se ha enviado ningún archivo o hubo un error en la carga.'
-        ]);
+// Ruta para guardar los archivos
+$uploadDirectory = 'uploads/';
+
+// Verificar si el directorio de carga existe, si no, crearlo
+if (!is_dir($uploadDirectory)) {
+    mkdir($uploadDirectory, 0777, true);
+}
+
+// Validar el tamaño máximo del archivo (5MB)
+define('MAX_FILE_SIZE', 5 * 1024 * 1024); // 5MB
+
+// Verificar si se ha enviado un archivo
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['file'])) {
+    $file = $_FILES['file'];
+
+    // Verificar si el archivo se subió sin errores
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Hubo un error al cargar el archivo.']);
         exit;
     }
 
-    // Verifica los parámetros JSON adicionales en el cuerpo de la solicitud
-    $data = json_decode(file_get_contents("php://input"), true);
-    if (!isset($data['numero']) || !isset($data['fechaRecepcion']) || !isset($data['remitente']) || !isset($data['asunto'])) {
-        echo json_encode([
-            'status' => 'error',
-            'message' => 'Faltan datos requeridos (numero, fechaRecepcion, remitente, asunto)'
-        ]);
-        exit;
-    }
-
-    $numero = $data['numero'];
-    $fechaRecepcion = $data['fechaRecepcion'];
-    $remitente = $data['remitente'];
-    $asunto = $data['asunto'];
-
-    // Verifica que los datos no estén vacíos
-    if (empty($numero) || empty($fechaRecepcion) || empty($remitente) || empty($asunto)) {
-        echo json_encode([
-            'status' => 'error',
-            'message' => 'Todos los campos son requeridos y no deben estar vacíos.'
-        ]);
-        exit;
-    }
-
-    // Conexión a la base de datos
-    require_once 'Connection.php';
-    $connection = new Connection();
-    $pdo = $connection->connect();
-
-    // Verifica que el directorio de subida exista, si no lo crea
-    $uploadDir = 'uploads/';
-    if (!file_exists($uploadDir)) {
-        mkdir($uploadDir, 0777, true);  // Crea la carpeta si no existe
-    }
-
-    // Validación de tipo de archivo
+    // Validar tipo de archivo (PDF, JPG, PNG)
     $allowedTypes = ['application/pdf', 'image/jpeg', 'image/png'];
-    if (!in_array($_FILES['file']['type'], $allowedTypes)) {
-        echo json_encode([
-            'status' => 'error',
-            'message' => 'Tipo de archivo no permitido. Solo se permiten archivos PDF y de imagen.'
-        ]);
+    if (!in_array($file['type'], $allowedTypes)) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'Tipo de archivo no permitido. Solo se permiten archivos PDF, JPG y PNG.']);
         exit;
     }
 
-    // Validación del tamaño máximo del archivo (5 MB)
-    $maxSize = 5 * 1024 * 1024; // 5 MB
-    if ($_FILES['file']['size'] > $maxSize) {
-        echo json_encode([
-            'status' => 'error',
-            'message' => 'El archivo excede el tamaño máximo permitido (5 MB).'
-        ]);
+    // Validar tamaño de archivo
+    if ($file['size'] > MAX_FILE_SIZE) {
+        http_response_code(400);
+        echo json_encode(['status' => 'error', 'message' => 'El archivo excede el tamaño máximo permitido (5MB).']);
         exit;
     }
 
-    // Generación de un nombre único para el archivo
-    $fileName = uniqid('file_', true) . '.' . pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION);
-    $filePath = $uploadDir . $fileName;
+    // Generar un nombre único para el archivo
+    $fileName = uniqid('file_', true) . '.' . pathinfo($file['name'], PATHINFO_EXTENSION);
 
-    // Mueve el archivo a la carpeta de destino
-    if (move_uploaded_file($_FILES['file']['tmp_name'], $filePath)) {
-        // Guarda la ruta del archivo en la base de datos
-        $sql = "INSERT INTO oficios (numero, fechaRecepcion, remitente, asunto, archivo) 
-                VALUES (:numero, :fechaRecepcion, :remitente, :asunto, :archivo)";
-        $stmt = $pdo->prepare($sql);
-        $stmt->bindParam(':numero', $numero, PDO::PARAM_STR);
-        $stmt->bindParam(':fechaRecepcion', $fechaRecepcion, PDO::PARAM_STR);
-        $stmt->bindParam(':remitente', $remitente, PDO::PARAM_STR);
-        $stmt->bindParam(':asunto', $asunto, PDO::PARAM_STR);
-        $stmt->bindParam(':archivo', $filePath, PDO::PARAM_STR);
+    // Mover el archivo a la carpeta de carga
+    if (move_uploaded_file($file['tmp_name'], $uploadDirectory . $fileName)) {
+        // Conectar a la base de datos (reemplazar con tus credenciales)
+        $host = 'localhost';
+        $dbname = 'oficialia';
+        $username = 'root';
+        $password = '';
+
+        // Obtener los valores adicionales del formulario (estos deben ser enviados en el cuerpo de la solicitud)
+        $numero = $_POST['numero'] ?? '';  // Asegúrate de enviar el campo 'numero'
+        $fechaRecepcion = $_POST['fechaRecepcion'] ?? date('Y-m-d');  // Asignar la fecha de recepción o la fecha actual si no se envía
+        $remitente = $_POST['remitente'] ?? '';  // Asegúrate de enviar el campo 'remitente'
+        $asunto = $_POST['asunto'] ?? '';  // Asegúrate de enviar el campo 'asunto'
 
         try {
-            $stmt->execute();
-            echo json_encode([
-                'status' => 'success',
-                'message' => 'Oficio y archivo guardados correctamente',
-                'data' => [
-                    'numero' => $numero,
-                    'archivo' => $filePath
-                ]
-            ]);
+            $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+            $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+            // Preparar la consulta para insertar el archivo y los datos adicionales
+            $sql = "INSERT INTO oficios (archivo, numero, fechaRecepcion, remitente, asunto) 
+                    VALUES (:archivo, :numero, :fechaRecepcion, :remitente, :asunto)";
+            $stmt = $pdo->prepare($sql);
+            $stmt->bindParam(':archivo', $fileName);
+            $stmt->bindParam(':numero', $numero);
+            $stmt->bindParam(':fechaRecepcion', $fechaRecepcion);
+            $stmt->bindParam(':remitente', $remitente);
+            $stmt->bindParam(':asunto', $asunto);
+
+            // Ejecutar la consulta
+            if ($stmt->execute()) {
+                // Responder con éxito
+                echo json_encode(['status' => 'success', 'message' => 'Archivo cargado correctamente y registrado en la base de datos', 'fileName' => $fileName]);
+            } else {
+                http_response_code(500);
+                echo json_encode(['status' => 'error', 'message' => 'Error al guardar la ruta del archivo en la base de datos.']);
+            }
         } catch (PDOException $e) {
-            echo json_encode([
-                'status' => 'error',
-                'message' => 'Error en la base de datos: ' . $e->getMessage()
-            ]);
+            http_response_code(500);
+            echo json_encode(['status' => 'error', 'message' => 'Error de base de datos: ' . $e->getMessage()]);
         }
     } else {
-        echo json_encode([
-            'status' => 'error',
-            'message' => 'Hubo un problema al guardar el archivo.'
-        ]);
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'Hubo un error al mover el archivo al servidor.']);
     }
 } else {
-    echo json_encode([
-        'status' => 'error',
-        'message' => 'Método no permitido.'
-    ]);
+    http_response_code(400);
+    echo json_encode(['status' => 'error', 'message' => 'No se ha enviado ningún archivo.']);
 }
 ?>
