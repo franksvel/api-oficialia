@@ -14,8 +14,8 @@ session_start();
 
 // Simulamos una lista de roles en el backend
 $roles = [
+    ['nombre' => 'SuperAdministrador'],
     ['nombre' => 'Administrador'],
-    ['nombre' => 'Editor'],
     ['nombre' => 'Usuario']
 ];
 
