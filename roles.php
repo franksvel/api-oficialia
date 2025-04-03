@@ -12,12 +12,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'OPTIONS') {
 
 session_start();
 
-// Simulamos una lista de roles en el backend
-$roles = [
-    ['nombre' => 'SuperAdministrador'],
-    ['nombre' => 'Administrador'],
-    ['nombre' => 'Usuario']
-];
+// Configuración de conexión a la base de datos
+$host = 'localhost';
+$dbname = 'oficialia';
+$username = 'root';
+$password = '';
+
+try {
+    $pdo = new PDO("mysql:host=$host;dbname=$dbname", $username, $password);
+    $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (PDOException $e) {
+    echo json_encode(['status' => 'error', 'message' => 'Conexión a la base de datos fallida: ' . $e->getMessage()]);
+    exit;
+}
 
 // Manejo de acciones (agregar, editar, eliminar)
 $action = $_POST['action'] ?? null;
@@ -25,8 +32,19 @@ $action = $_POST['action'] ?? null;
 switch ($action) {
     case 'add':
         $roleName = $_POST['role_name'] ?? '';
+        $rolePermissions = $_POST['permissions'] ?? [];
         if ($roleName) {
-            $roles[] = ['nombre' => $roleName];
+            // Agregar rol
+            $stmt = $pdo->prepare("INSERT INTO roles (nombre) VALUES (?)");
+            $stmt->execute([$roleName]);
+            $roleId = $pdo->lastInsertId();
+
+            // Asociar permisos al rol
+            foreach ($rolePermissions as $permiso) {
+                $stmt = $pdo->prepare("INSERT INTO roles_permisos (role_id, permiso_id) VALUES (?, ?)");
+                $stmt->execute([$roleId, $permiso]);
+            }
+
             echo json_encode(['status' => 'success', 'message' => 'Rol agregado correctamente.']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'El nombre del rol es obligatorio.']);
@@ -36,8 +54,22 @@ switch ($action) {
     case 'edit':
         $index = $_POST['index'] ?? -1;
         $roleName = $_POST['role_name'] ?? '';
+        $rolePermissions = $_POST['permissions'] ?? [];
         if ($index >= 0 && $roleName) {
-            $roles[$index]['nombre'] = $roleName;
+            // Actualizar rol
+            $stmt = $pdo->prepare("UPDATE roles SET nombre = ? WHERE id = ?");
+            $stmt->execute([$roleName, $index]);
+
+            // Eliminar permisos antiguos
+            $stmt = $pdo->prepare("DELETE FROM roles_permisos WHERE role_id = ?");
+            $stmt->execute([$index]);
+
+            // Asociar nuevos permisos al rol
+            foreach ($rolePermissions as $permiso) {
+                $stmt = $pdo->prepare("INSERT INTO roles_permisos (role_id, permiso_id) VALUES (?, ?)");
+                $stmt->execute([$index, $permiso]);
+            }
+
             echo json_encode(['status' => 'success', 'message' => 'Rol editado correctamente.']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Índice de rol no válido o nombre de rol vacío.']);
@@ -46,8 +78,15 @@ switch ($action) {
     
     case 'delete':
         $index = $_POST['index'] ?? -1;
-        if ($index >= 0 && isset($roles[$index])) {
-            array_splice($roles, $index, 1);
+        if ($index >= 0) {
+            // Eliminar permisos asociados al rol
+            $stmt = $pdo->prepare("DELETE FROM roles_permisos WHERE role_id = ?");
+            $stmt->execute([$index]);
+
+            // Eliminar rol
+            $stmt = $pdo->prepare("DELETE FROM roles WHERE id = ?");
+            $stmt->execute([$index]);
+
             echo json_encode(['status' => 'success', 'message' => 'Rol eliminado correctamente.']);
         } else {
             echo json_encode(['status' => 'error', 'message' => 'Índice de rol no válido.']);
@@ -56,6 +95,12 @@ switch ($action) {
     
     case 'get':
     default:
+        // Obtener todos los roles con permisos
+        $stmt = $pdo->query("SELECT r.id, r.nombre, GROUP_CONCAT(p.nombre) AS permisos FROM roles r 
+                             LEFT JOIN roles_permisos rp ON r.id = rp.role_id
+                             LEFT JOIN permisos p ON rp.permiso_id = p.id
+                             GROUP BY r.id");
+        $roles = $stmt->fetchAll(PDO::FETCH_ASSOC);
         echo json_encode(['status' => 'success', 'roles' => $roles]);
         break;
 }

@@ -12,7 +12,7 @@ $connection = new Connection();
 $pdo = $connection->connect();
 
 // Consulta para obtener todos los oficios almacenados
-$sql = "SELECT id, numero, fechaRecepcion, remitente, asunto, archivo FROM oficios";
+$sql = "SELECT id, titulo, fecha, descripcion, destinatario FROM circular";
 $stmt = $pdo->prepare($sql);
 
 try {
